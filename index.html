@@ -16,17 +16,19 @@
 <body>
 
     <div class="container">
-        <h2>📂 1. Carregar Planilha (.xlsx)</h2>
-        <input type="file" id="inputExcel" accept=".xlsx">
-        <p id="statusArquivo">Aguardando carregamento da planilha...</p>
+        <form onsubmit="event.preventDefault(); buscarDados();"> 
+            <h2>📂 1. Carregar Planilha (.xlsx)</h2>
+            <input type="file" id="inputExcel" accept=".xlsx">
+            <p id="statusArquivo">Aguardando carregamento da planilha...</p>
 
-        <hr>
+            <hr>
 
-        <h2>🔍 2. Pesquisar</h2>
-        <label for="inputUF">UF (Ex: SP):</label>
-        <input type="text" id="inputUF">
+            <h2>🔍 2. Pesquisar</h2>
+            <label for="inputUF">UF (Ex: SP):</label>
+            <input type="text" id="inputUF">
 
-        <button onclick="buscarDados()">Buscar Dados</button>
+            <button type="submit" onclick="buscarDados()">Buscar Dados</button>
+        </form>
 
         <hr>
 
