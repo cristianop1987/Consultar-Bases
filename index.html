@@ -76,7 +76,7 @@
         // Passo A: Tenta carregar do servidor (GitHub) - Mais atualizado
         try {
             statusEl.textContent = "Buscando atualizações no servidor...";
-            const response = await fetch(NOME_ARQUIVO_PADRAO);
+            const response = await fetch(`./${NOME_ARQUIVO_PADRAO}?v=${new Date().getTime()}`);
             if (response.ok) {
                 const buffer = await response.arrayBuffer();
                 processarExcel(buffer);
@@ -105,3 +105,4 @@
         try {
             const data = new Uint8Array(buffer);
             const workbook = XLSX.read(data, { type: 'array' });
+
