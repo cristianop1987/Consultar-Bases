@@ -1,86 +1,83 @@
-<!DOCTYPE html>
-<html lang="pt-BR">
-<head>
-    <meta charset="UTF-8">
-    <title>Pesquisa de Dados da Planilha</title>
-    <style>
-        /* Estilos CSS básicos para melhor visualização */
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-        input[type="text"] { padding: 8px; margin: 5px 0 10px 0; display: block; width: 95%; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        #resultado { margin-top: 20px; padding: 15px; border: 1px solid #007bff; border-radius: 4px; background-color: #f4f9ff; }
-        .erro { color: red; font-weight: bold; }
-    </style>
-</head>
-<body>
-
-    <div class="container">
-        <form onsubmit="event.preventDefault(); buscarDados();"> 
-            <h2>📂 1. Carregar Planilha (.xlsx)</h2>
-            <input type="file" id="inputExcel" accept=".xlsx">
-            <p id="statusArquivo">Aguardando carregamento da planilha...</p>
-
-            <hr>
-
-            <h2>🔍 2. Pesquisar</h2>
-            <label for="inputUF">UF (Ex: SP):</label>
-            <input type="text" id="inputUF">
-
-            <button type="submit" onclick="buscarDados()">Buscar Dados</button>
-        </form>
-
-        <hr>
-
-        <h2>📝 3. Resultado</h2>
-        <div id="resultado">
-            Nenhum resultado encontrado.
-        </div>
-    </div>
-
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
 <script>
-    // O JavaScript que fará a mágica
-    let dadosPlanilha = []; // Variável global para armazenar todos os dados da planilha
-    let ultimoResultadoBusca = []; // Nova variável para guardar o resultado filtrado
+    let dadosPlanilha = []; 
+    let ultimoResultadoBusca = []; 
 
-    // --- Etapa 1: Carregar e processar o arquivo ---
+    // --- CONFIGURAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB) ---
+    const dbNome = "MeuBancoDeDados";
+    const storeNome = "planilhas";
+
+    function abrirDB() {
+        return new Promise((resolve, reject) => {
+            const request = indexedDB.open(dbNome, 1);
+            request.onupgradeneeded = e => e.target.result.createObjectStore(storeNome);
+            request.onsuccess = e => resolve(e.target.result);
+            request.onerror = e => reject(e.target.error);
+        });
+    }
+
+    async function salvarPlanilhaLocal(arquivoArrayBuffer) {
+        const db = await abrirDB();
+        const tx = db.transaction(storeNome, "readwrite");
+        tx.objectStore(storeNome).put(arquivoArrayBuffer, "arquivo_atual");
+    }
+
+    async function carregarPlanilhaLocal() {
+        const db = await abrirDB();
+        const tx = db.transaction(storeNome, "readonly");
+        const arquivo = await new Promise(resolve => {
+            const req = tx.objectStore(storeNome).get("arquivo_atual");
+            req.onsuccess = () => resolve(req.result);
+        });
+
+        if (arquivo) {
+            processarDados(arquivo, true);
+        }
+    }
+
+    // --- PROCESSAMENTO DOS DADOS ---
+    function processarDados(arrayBuffer, ehCarregamentoAutomatico = false) {
+        try {
+            const data = new Uint8Array(arrayBuffer);
+            const workbook = XLSX.read(data, { type: 'array' });
+            const firstSheetName = workbook.SheetNames[0];
+            const worksheet = workbook.Sheets[firstSheetName];
+            
+            dadosPlanilha = XLSX.utils.sheet_to_json(worksheet, { range: 5 });
+
+            const statusMsg = ehCarregamentoAutomatico ? "✅ Dados carregados automaticamente da memória!" : "✅ Planilha carregada e salva com sucesso!";
+            document.getElementById('statusArquivo').textContent = `${statusMsg} (${dadosPlanilha.length} linhas)`;
+            
+        } catch (error) {
+            document.getElementById('statusArquivo').textContent = '❌ Erro ao processar o arquivo.';
+            console.error(error);
+        }
+    }
+
+    // Iniciar ao carregar a página
+    window.addEventListener('DOMContentLoaded', carregarPlanilhaLocal);
+
+    // Evento de Seleção de Arquivo
     document.getElementById('inputExcel').addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
 
-        document.getElementById('statusArquivo').textContent = 'Carregando...';
+        document.getElementById('statusArquivo').textContent = 'Processando e Salvando...';
 
         const reader = new FileReader();
         reader.onload = function(e) {
-            try {
-                const data = new Uint8Array(e.target.result);
-                const workbook = XLSX.read(data, { type: 'array' });
-                
-                const firstSheetName = workbook.SheetNames[0];
-                const worksheet = workbook.Sheets[firstSheetName];
-                
-                // { range: 5 } instrui a biblioteca a pular as primeiras 5 linhas.
-                dadosPlanilha = XLSX.utils.sheet_to_json(worksheet, { range: 5 });
-
-                document.getElementById('statusArquivo').textContent = `✅ Planilha carregada com sucesso! (${dadosPlanilha.length} linhas)`;
-                console.log("Dados carregados:", dadosPlanilha);
-
-            } catch (error) {
-                document.getElementById('statusArquivo').textContent = '❌ Erro ao processar o arquivo. Verifique se é um .xlsx válido.';
-                console.error("Erro ao processar:", error);
-                dadosPlanilha = [];
-            }
+            const buffer = e.target.result;
+            processarDados(buffer); // Processa para uso imediato
+            salvarPlanilhaLocal(buffer); // Salva no navegador para a próxima vez
         };
         reader.readAsArrayBuffer(file);
     });
 
-    // --- Etapa 2: Função de Busca (Com Ordenação) ---
+    // --- FUNÇÕES DE BUSCA (Mantidas do seu código original) ---
     function buscarDados() {
         const uf = document.getElementById('inputUF').value.trim().toUpperCase();
         const resultadoDiv = document.getElementById('resultado');
-        // A linha que limpava o campo Cidade foi removida
 
         if (dadosPlanilha.length === 0) {
             resultadoDiv.innerHTML = '<p class="erro">Por favor, carregue a planilha primeiro.</p>';
@@ -92,28 +89,22 @@
             return;
         }
 
-        // 1. FILTRA: Realiza a pesquisa de TODAS as linhas que correspondem à UF
         let resultadosFiltrados = dadosPlanilha.filter(linha => {
             const colunaUF = String(linha.UF || '').toUpperCase();
             return colunaUF === uf;
         });
         
-        // 2. ORDENA: Ordena os resultados pelo nome da CIDADE em ordem alfabética.
-        // O método localeCompare é ideal para strings com caracteres especiais (como acentuação).
         ultimoResultadoBusca = resultadosFiltrados.sort((a, b) => {
             const cidadeA = String(a.CIDADE || '').toLowerCase();
             const cidadeB = String(b.CIDADE || '').toLowerCase();
             return cidadeA.localeCompare(cidadeB, 'pt-BR');
         });
 
-
-        // --- Etapa 3: Exibir a Lista de Resultados ---
         if (ultimoResultadoBusca.length > 0) {
             let htmlResultado = `<h3>📍 ${ultimoResultadoBusca.length} Local(is) Encontrado(s) para ${uf}:</h3>`;
             htmlResultado += '<ul style="list-style-type: none; padding: 0;">';
 
             ultimoResultadoBusca.forEach((linha, index) => {
-                // Acessa as colunas CIDADE, BAIRRO e SIGLA SK (em maiúsculo)
                 const cidade = linha.CIDADE || 'N/A';
                 const bairro = linha.BAIRRO || 'N/A'; 
                 const siglaSK = linha['SIGLA SK'] || 'N/A'; 
@@ -138,11 +129,8 @@
         }
     }
 
-    // --- Etapa 4: Função para Mostrar Detalhes Completos ---
     function mostrarDetalhes(index) {
         const resultadoDiv = document.getElementById('resultado');
-        
-        // Pega o item completo do array salvo (que agora está ordenado)
         const resultadoBusca = ultimoResultadoBusca[index];
 
         if (!resultadoBusca) {
@@ -150,16 +138,9 @@
             return;
         }
         
-        // Define as colunas que você quer exibir nos detalhes
         const colunasSolicitadas = [
-            'SIGLA SK', 
-            'ENDEREÇO', 
-            'BAIRRO', 
-            'CEP', 
-            'E-MAIL DA UNIDADE', 
-            'TELEFONE DA UNIDADE', 
-            'WHATSAPP UNIDADE', 
-            'HORÁRIO DE ATENDIMENTO AO CLIENTE'
+            'SIGLA SK', 'ENDEREÇO', 'BAIRRO', 'CEP', 'E-MAIL DA UNIDADE', 
+            'TELEFONE DA UNIDADE', 'WHATSAPP UNIDADE', 'HORÁRIO DE ATENDIMENTO AO CLIENTE'
         ];
 
         let htmlDetalhes = `<h3>📋 Detalhes de ${resultadoBusca.CIDADE} (${resultadoBusca['SIGLA SK']}):</h3>`;
@@ -167,13 +148,11 @@
         htmlDetalhes += `<p><strong>Cidade:</strong> ${resultadoBusca.CIDADE}</p>`; 
         htmlDetalhes += '<hr>';
 
-        // Itera e exibe apenas as colunas solicitadas
         colunasSolicitadas.forEach(chave => {
             const valor = resultadoBusca[chave] || 'N/A'; 
             htmlDetalhes += `<p><strong>${chave}:</strong> ${valor}</p>`;
         });
         
-        // Botão para voltar
         htmlDetalhes += '<button onclick="buscarDados()" style="background-color: #6c757d; color: white; padding: 10px 15px; border: none; cursor: pointer; border-radius: 4px; margin-top: 20px;">'
         htmlDetalhes += '← Voltar para a Lista'
         htmlDetalhes += '</button>';
@@ -181,5 +160,3 @@
         resultadoDiv.innerHTML = htmlDetalhes;
     }
 </script>
-</body>
-</html>
