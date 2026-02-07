@@ -2,24 +2,22 @@
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Pesquisa de Dados da Planilha - Azul Cargo</title>
+    <title>Pesquisa de Dados - Azul Cargo</title>
     <style>
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f4f8; }
         .container { max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
         input[type="text"] { padding: 8px; margin: 5px 0 10px 0; display: block; width: 95%; border: 1px solid #ccc; border-radius: 4px; }
         button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; }
-        button:hover { background-color: #0056b3; }
         #resultado { margin-top: 20px; padding: 15px; border: 1px solid #007bff; border-radius: 4px; background-color: #f4f9ff; min-height: 50px; }
         .status-badge { padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 0.9em; background-color: #eee; border-left: 5px solid #ccc; }
         .erro { color: red; font-weight: bold; }
-        hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <h2>📂 Base de Dados</h2>
-        <div id="statusArquivo" class="status-badge">Verificando banco de dados...</div>
+        <div id="statusArquivo" class="status-badge">Iniciando sistema...</div>
         
         <details>
             <summary style="cursor: pointer; color: #666; font-size: 0.8em;">Atualizar manualmente (.xlsx)</summary>
@@ -28,7 +26,7 @@
 
         <hr>
 
-        <form onsubmit="event.preventDefault(); buscarDados();"> 
+        <form id="formBusca"> 
             <h2>🔍 Pesquisar</h2>
             <label for="inputUF">UF (Ex: SP, RJ, MG):</label>
             <input type="text" id="inputUF" placeholder="Digite a UF...">
@@ -38,71 +36,102 @@
         <hr>
 
         <h2>📝 Resultado</h2>
-        <div id="resultado">
-            Aguardando pesquisa...
-        </div>
+        <div id="resultado">Aguardando pesquisa...</div>
     </div>
 
 <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
 <script>
-    let dadosPlanilha = []; 
-    let ultimoResultadoBusca = []; 
-    const NOME_ARQUIVO_PADRAO = "bases.xlsx"; // Nome do arquivo que você deve subir no GitHub
+    // Variáveis Globais
+    window.dadosPlanilha = []; 
+    window.ultimoResultadoBusca = []; 
+    const NOME_ARQUIVO = "bases.xlsx"; 
 
-    // --- 1. CONFIGURAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB) ---
-    const dbNome = "SistemaBasesAzul";
-    const storeNome = "planilha_store";
+    // --- FUNÇÃO DE BUSCA (Definida no topo para evitar o erro do print) ---
+    window.buscarDados = function() {
+        const uf = document.getElementById('inputUF').value.trim().toUpperCase();
+        const resultadoDiv = document.getElementById('resultado');
 
-    function abrirDB() {
-        return new Promise((resolve) => {
-            const request = indexedDB.open(dbNome, 1);
-            request.onupgradeneeded = e => e.target.result.createObjectStore(storeNome);
-            request.onsuccess = e => resolve(e.target.result);
-        });
-    }
+        if (window.dadosPlanilha.length === 0) {
+            resultadoDiv.innerHTML = '<p class="erro">A base de dados ainda não foi carregada.</p>';
+            return;
+        }
 
-    async function salvarLocal(buffer) {
-        const db = await abrirDB();
-        const tx = db.transaction(storeNome, "readwrite");
-        tx.objectStore(storeNome).put(buffer, "ultimo_arquivo");
-    }
+        if (!uf) {
+            resultadoDiv.innerHTML = '<p class="erro">Digite uma UF para buscar.</p>';
+            return;
+        }
 
-    // --- 2. LÓGICA DE CARREGAMENTO ---
-
-    async function inicializar() {
-        const statusEl = document.getElementById('statusArquivo');
+        let filtrados = window.dadosPlanilha.filter(linha => String(linha.UF || '').toUpperCase() === uf);
         
-        // Passo A: Tenta carregar do servidor (GitHub) - Mais atualizado
-        try {
-            statusEl.textContent = "Buscando atualizações no servidor...";
-            const response = await fetch(`./${NOME_ARQUIVO_PADRAO}?v=${new Date().getTime()}`);
-            if (response.ok) {
-                const buffer = await response.arrayBuffer();
-                processarExcel(buffer);
-                salvarLocal(buffer); // Salva para uso offline posterior
-                statusEl.innerHTML = "✅ Dados atualizados via servidor GitHub.";
-                return;
-            }
-        } catch (e) { console.log("Servidor indisponível, tentando local..."); }
+        window.ultimoResultadoBusca = filtrados.sort((a, b) => 
+            String(a.CIDADE || '').localeCompare(String(b.CIDADE || ''), 'pt-BR')
+        );
 
-        // Passo B: Se falhar o servidor, tenta o que estiver salvo no navegador
-        const db = await abrirDB();
-        const tx = db.transaction(storeNome, "readonly");
-        const req = tx.objectStore(storeNome).get("ultimo_arquivo");
-        
-        req.onsuccess = () => {
-            if (req.result) {
-                processarExcel(req.result);
-                statusEl.innerHTML = "✅ Dados carregados da memória local.";
-            } else {
-                statusEl.innerHTML = "❌ Nenhuma base encontrada. Por favor, anexe o arquivo .xlsx manualmente uma vez.";
-            }
-        };
-    }
+        if (window.ultimoResultadoBusca.length > 0) {
+            let html = `<h3>📍 ${window.ultimoResultadoBusca.length} Bases em ${uf}:</h3><ul style="padding:0">`;
+            window.ultimoResultadoBusca.forEach((linha, i) => {
+                html += `
+                    <li style="list-style:none; border:1px solid #ddd; padding:10px; margin-bottom:10px; border-radius:4px; display:flex; justify-content:space-between; align-items:center;">
+                        <span><strong>${linha.CIDADE || 'N/A'}</strong><br><small>${linha.BAIRRO || ''}</small></span>
+                        <button onclick="verDetalhes(${i})" style="background-color:#28a745; font-size:0.8em">Ver Detalhes</button>
+                    </li>`;
+            });
+            resultadoDiv.innerHTML = html + "</ul>";
+        } else {
+            resultadoDiv.innerHTML = `<p class="erro">Nenhuma base encontrada para a UF: ${uf}</p>`;
+        }
+    };
 
-    function processarExcel(buffer) {
+    window.verDetalhes = function(index) {
+        const base = window.ultimoResultadoBusca[index];
+        const colunas = ['SIGLA SK', 'ENDEREÇO', 'BAIRRO', 'CEP', 'E-MAIL DA UNIDADE', 'TELEFONE DA UNIDADE', 'WHATSAPP UNIDADE', 'HORÁRIO DE ATENDIMENTO AO CLIENTE'];
+        let html = `<h3>📋 ${base.CIDADE}</h3><hr>`;
+        colunas.forEach(col => html += `<p><strong>${col}:</strong> ${base[col] || 'N/A'}</p>`);
+        html += `<button onclick="window.buscarDados()" style="background-color:#6c757d">← Voltar</button>`;
+        document.getElementById('resultado').innerHTML = html;
+    };
+
+    // --- CARREGAMENTO DO ARQUIVO ---
+    async function carregarAutomatico() {
+        const status = document.getElementById('statusArquivo');
         try {
+            status.textContent = "Tentando carregar bases.xlsx do GitHub...";
+            const resp = await fetch(`./${NOME_ARQUIVO}?v=${new Date().getTime()}`);
+            if (!resp.ok) throw new Error();
+            
+            const buffer = await resp.arrayBuffer();
             const data = new Uint8Array(buffer);
             const workbook = XLSX.read(data, { type: 'array' });
+            const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+            
+            window.dadosPlanilha = XLSX.utils.sheet_to_json(worksheet, { range: 5 });
+            status.innerHTML = `✅ ${window.dadosPlanilha.length} bases carregadas do servidor!`;
+        } catch (e) {
+            status.innerHTML = "⚠️ Arquivo 'bases.xlsx' não encontrado no GitHub. Anexe manualmente abaixo.";
+        }
+    }
 
+    // Configurar o formulário e carregar dados
+    document.addEventListener('DOMContentLoaded', () => {
+        document.getElementById('formBusca').onsubmit = (e) => {
+            e.preventDefault();
+            window.buscarDados();
+        };
+
+        document.getElementById('inputExcel').onchange = function(e) {
+            const reader = new FileReader();
+            reader.onload = function(ev) {
+                const data = new Uint8Array(ev.target.result);
+                const workbook = XLSX.read(data, { type: 'array' });
+                window.dadosPlanilha = XLSX.utils.sheet_to_json(workbook.Sheets[workbook.SheetNames[0]], { range: 5 });
+                document.getElementById('statusArquivo').innerHTML = "✅ Arquivo manual carregado!";
+            };
+            reader.readAsArrayBuffer(e.target.files[0]);
+        };
+
+        carregarAutomatico();
+    });
+</script>
+</body>
+</html>
