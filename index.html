@@ -1,41 +1,45 @@
-
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
     <meta charset="UTF-8">
-    <title>Pesquisa de Dados da Planilha</title>
+    <title>Pesquisa de Dados da Planilha - Azul Cargo</title>
     <style>
-        /* Estilos CSS básicos para melhor visualização */
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        .container { max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; }
-        input[type="text"] { padding: 8px; margin: 5px 0 10px 0; display: block; width: 95%; }
-        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; }
-        #resultado { margin-top: 20px; padding: 15px; border: 1px solid #007bff; border-radius: 4px; background-color: #f4f9ff; }
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f0f4f8; }
+        .container { max-width: 600px; margin: auto; padding: 20px; border: 1px solid #ccc; border-radius: 8px; background-color: white; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        input[type="text"] { padding: 8px; margin: 5px 0 10px 0; display: block; width: 95%; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 10px 15px; background-color: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; font-weight: bold; }
+        button:hover { background-color: #0056b3; }
+        #resultado { margin-top: 20px; padding: 15px; border: 1px solid #007bff; border-radius: 4px; background-color: #f4f9ff; min-height: 50px; }
+        .status-badge { padding: 10px; border-radius: 4px; margin-bottom: 10px; font-size: 0.9em; background-color: #eee; border-left: 5px solid #ccc; }
         .erro { color: red; font-weight: bold; }
+        hr { border: 0; border-top: 1px solid #eee; margin: 20px 0; }
     </style>
 </head>
 <body>
 
     <div class="container">
+        <h2>📂 Base de Dados</h2>
+        <div id="statusArquivo" class="status-badge">Verificando banco de dados...</div>
+        
+        <details>
+            <summary style="cursor: pointer; color: #666; font-size: 0.8em;">Atualizar manualmente (.xlsx)</summary>
+            <input type="file" id="inputExcel" accept=".xlsx" style="margin-top: 10px;">
+        </details>
+
+        <hr>
+
         <form onsubmit="event.preventDefault(); buscarDados();"> 
-            <h2>📂 1. Carregar Planilha (.xlsx)</h2>
-            <input type="file" id="inputExcel" accept=".xlsx">
-            <p id="statusArquivo">Aguardando carregamento da planilha...</p>
-
-            <hr>
-
-            <h2>🔍 2. Pesquisar</h2>
-            <label for="inputUF">UF (Ex: SP):</label>
-            <input type="text" id="inputUF">
-
-            <button type="submit" onclick="buscarDados()">Buscar Dados</button>
+            <h2>🔍 Pesquisar</h2>
+            <label for="inputUF">UF (Ex: SP, RJ, MG):</label>
+            <input type="text" id="inputUF" placeholder="Digite a UF...">
+            <button type="submit">Buscar Dados</button>
         </form>
 
         <hr>
 
-        <h2>📝 3. Resultado</h2>
+        <h2>📝 Resultado</h2>
         <div id="resultado">
-            Nenhum resultado encontrado.
+            Aguardando pesquisa...
         </div>
     </div>
 
@@ -44,162 +48,60 @@
 <script>
     let dadosPlanilha = []; 
     let ultimoResultadoBusca = []; 
+    const NOME_ARQUIVO_PADRAO = "bases.xlsx"; // Nome do arquivo que você deve subir no GitHub
 
-    // --- CONFIGURAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB) ---
-    const dbNome = "MeuBancoDeDados";
-    const storeNome = "planilhas";
+    // --- 1. CONFIGURAÇÃO DO BANCO DE DADOS LOCAL (IndexedDB) ---
+    const dbNome = "SistemaBasesAzul";
+    const storeNome = "planilha_store";
 
     function abrirDB() {
-        return new Promise((resolve, reject) => {
+        return new Promise((resolve) => {
             const request = indexedDB.open(dbNome, 1);
             request.onupgradeneeded = e => e.target.result.createObjectStore(storeNome);
             request.onsuccess = e => resolve(e.target.result);
-            request.onerror = e => reject(e.target.error);
         });
     }
 
-    async function salvarPlanilhaLocal(arquivoArrayBuffer) {
+    async function salvarLocal(buffer) {
         const db = await abrirDB();
         const tx = db.transaction(storeNome, "readwrite");
-        tx.objectStore(storeNome).put(arquivoArrayBuffer, "arquivo_atual");
+        tx.objectStore(storeNome).put(buffer, "ultimo_arquivo");
     }
 
-    async function carregarPlanilhaLocal() {
+    // --- 2. LÓGICA DE CARREGAMENTO ---
+
+    async function inicializar() {
+        const statusEl = document.getElementById('statusArquivo');
+        
+        // Passo A: Tenta carregar do servidor (GitHub) - Mais atualizado
+        try {
+            statusEl.textContent = "Buscando atualizações no servidor...";
+            const response = await fetch(NOME_ARQUIVO_PADRAO);
+            if (response.ok) {
+                const buffer = await response.arrayBuffer();
+                processarExcel(buffer);
+                salvarLocal(buffer); // Salva para uso offline posterior
+                statusEl.innerHTML = "✅ Dados atualizados via servidor GitHub.";
+                return;
+            }
+        } catch (e) { console.log("Servidor indisponível, tentando local..."); }
+
+        // Passo B: Se falhar o servidor, tenta o que estiver salvo no navegador
         const db = await abrirDB();
         const tx = db.transaction(storeNome, "readonly");
-        const arquivo = await new Promise(resolve => {
-            const req = tx.objectStore(storeNome).get("arquivo_atual");
-            req.onsuccess = () => resolve(req.result);
-        });
-
-        if (arquivo) {
-            processarDados(arquivo, true);
-        }
-    }
-
-    // --- PROCESSAMENTO DOS DADOS ---
-    function processarDados(arrayBuffer, ehCarregamentoAutomatico = false) {
-        try {
-            const data = new Uint8Array(arrayBuffer);
-            const workbook = XLSX.read(data, { type: 'array' });
-            const firstSheetName = workbook.SheetNames[0];
-            const worksheet = workbook.Sheets[firstSheetName];
-            
-            dadosPlanilha = XLSX.utils.sheet_to_json(worksheet, { range: 5 });
-
-            const statusMsg = ehCarregamentoAutomatico ? "✅ Dados carregados automaticamente da memória!" : "✅ Planilha carregada e salva com sucesso!";
-            document.getElementById('statusArquivo').textContent = `${statusMsg} (${dadosPlanilha.length} linhas)`;
-            
-        } catch (error) {
-            document.getElementById('statusArquivo').textContent = '❌ Erro ao processar o arquivo.';
-            console.error(error);
-        }
-    }
-
-    // Iniciar ao carregar a página
-    window.addEventListener('DOMContentLoaded', carregarPlanilhaLocal);
-
-    // Evento de Seleção de Arquivo
-    document.getElementById('inputExcel').addEventListener('change', function(e) {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        document.getElementById('statusArquivo').textContent = 'Processando e Salvando...';
-
-        const reader = new FileReader();
-        reader.onload = function(e) {
-            const buffer = e.target.result;
-            processarDados(buffer); // Processa para uso imediato
-            salvarPlanilhaLocal(buffer); // Salva no navegador para a próxima vez
+        const req = tx.objectStore(storeNome).get("ultimo_arquivo");
+        
+        req.onsuccess = () => {
+            if (req.result) {
+                processarExcel(req.result);
+                statusEl.innerHTML = "✅ Dados carregados da memória local.";
+            } else {
+                statusEl.innerHTML = "❌ Nenhuma base encontrada. Por favor, anexe o arquivo .xlsx manualmente uma vez.";
+            }
         };
-        reader.readAsArrayBuffer(file);
-    });
-
-    // --- FUNÇÕES DE BUSCA (Mantidas do seu código original) ---
-    function buscarDados() {
-        const uf = document.getElementById('inputUF').value.trim().toUpperCase();
-        const resultadoDiv = document.getElementById('resultado');
-
-        if (dadosPlanilha.length === 0) {
-            resultadoDiv.innerHTML = '<p class="erro">Por favor, carregue a planilha primeiro.</p>';
-            return;
-        }
-
-        if (!uf) {
-            resultadoDiv.innerHTML = '<p class="erro">Preencha o campo UF para pesquisar.</p>';
-            return;
-        }
-
-        let resultadosFiltrados = dadosPlanilha.filter(linha => {
-            const colunaUF = String(linha.UF || '').toUpperCase();
-            return colunaUF === uf;
-        });
-        
-        ultimoResultadoBusca = resultadosFiltrados.sort((a, b) => {
-            const cidadeA = String(a.CIDADE || '').toLowerCase();
-            const cidadeB = String(b.CIDADE || '').toLowerCase();
-            return cidadeA.localeCompare(cidadeB, 'pt-BR');
-        });
-
-        if (ultimoResultadoBusca.length > 0) {
-            let htmlResultado = `<h3>📍 ${ultimoResultadoBusca.length} Local(is) Encontrado(s) para ${uf}:</h3>`;
-            htmlResultado += '<ul style="list-style-type: none; padding: 0;">';
-
-            ultimoResultadoBusca.forEach((linha, index) => {
-                const cidade = linha.CIDADE || 'N/A';
-                const bairro = linha.BAIRRO || 'N/A'; 
-                const siglaSK = linha['SIGLA SK'] || 'N/A'; 
-                
-                htmlResultado += `
-                    <li style="margin-bottom: 15px; border: 1px solid #ddd; padding: 10px; border-radius: 4px; display: flex; justify-content: space-between; align-items: center;">
-                        <span>
-                            <strong>Cidade:</strong> ${cidade}<br>
-			    <strong>Bairro:</strong> ${bairro}<br>
-                            <strong>Sigla SK:</strong> ${siglaSK}
-                        </span>
-                        <button onclick="mostrarDetalhes(${index})" style="background-color: #28a745; color: white; padding: 8px 12px; border: none; border-radius: 4px; cursor: pointer;">
-                            Ver Detalhes
-                        </button>
-                    </li>
-                `;
-            });
-            htmlResultado += '</ul>';
-            resultadoDiv.innerHTML = htmlResultado;
-        } else {
-            resultadoDiv.innerHTML = `<p class="erro">Nenhum dado encontrado para UF: ${uf}.</p>`;
-        }
     }
 
-    function mostrarDetalhes(index) {
-        const resultadoDiv = document.getElementById('resultado');
-        const resultadoBusca = ultimoResultadoBusca[index];
-
-        if (!resultadoBusca) {
-            resultadoDiv.innerHTML = '<p class="erro">Erro ao carregar os detalhes.</p>';
-            return;
-        }
-        
-        const colunasSolicitadas = [
-            'SIGLA SK', 'ENDEREÇO', 'BAIRRO', 'CEP', 'E-MAIL DA UNIDADE', 
-            'TELEFONE DA UNIDADE', 'WHATSAPP UNIDADE', 'HORÁRIO DE ATENDIMENTO AO CLIENTE'
-        ];
-
-        let htmlDetalhes = `<h3>📋 Detalhes de ${resultadoBusca.CIDADE} (${resultadoBusca['SIGLA SK']}):</h3>`;
-        htmlDetalhes += `<p><strong>UF:</strong> ${resultadoBusca.UF}</p>`;
-        htmlDetalhes += `<p><strong>Cidade:</strong> ${resultadoBusca.CIDADE}</p>`; 
-        htmlDetalhes += '<hr>';
-
-        colunasSolicitadas.forEach(chave => {
-            const valor = resultadoBusca[chave] || 'N/A'; 
-            htmlDetalhes += `<p><strong>${chave}:</strong> ${valor}</p>`;
-        });
-        
-        htmlDetalhes += '<button onclick="buscarDados()" style="background-color: #6c757d; color: white; padding: 10px 15px; border: none; cursor: pointer; border-radius: 4px; margin-top: 20px;">'
-        htmlDetalhes += '← Voltar para a Lista'
-        htmlDetalhes += '</button>';
-
-        resultadoDiv.innerHTML = htmlDetalhes;
-    }
-</script>
-</body>
-</html>
+    function processarExcel(buffer) {
+        try {
+            const data = new Uint8Array(buffer);
+            const workbook = XLSX.read(data, { type: 'array' });
